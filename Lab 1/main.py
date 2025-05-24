@@ -6,60 +6,42 @@ from river import naive_bayes, tree, linear_model, metrics, preprocessing, neigh
 from incremental_elm import IncrementalELM
 
 
-def smooth_transition(val1, val2, alpha):
-    return (1 - alpha) * val1 + alpha * val2
+def random_walk_param(value, delta=0.01, min_val=0.0, max_val=1.0):
+    new_value = value + np.random.uniform(-delta, delta)
+    return min(max(new_value, min_val), max_val)
 
 def data_stream_generator_with_concept_drift(total_samples=20000, drift_period=5000):
-    distributions_epoch_1 = [
-        {"mu": 0.5118, "sigma": 0.0634},
-        {"mu": 0.5147, "sigma": 0.0134},
-        {"mu": 0.7463, "sigma": 0.0600},
-        {"mu": 0.7035, "sigma": 0.0592},
-        {"mu": 0.3849, "sigma": 0.0357},
-    ]
-    distributions_epoch_2 = [
-        {"mu": 0.5188, "sigma": 0.0579},
-        {"mu": 0.4015, "sigma": 0.0513},
-        {"mu": 0.5203, "sigma": 0.0012},
-        {"mu": 0.4533, "sigma": 0.0489},
-        {"mu": 0.3843, "sigma": 0.0527},
+    # Початкові параметри
+    distributions = [
+        {"mu": 0.5, "sigma": 0.05},
+        {"mu": 0.52, "sigma": 0.02},
+        {"mu": 0.74, "sigma": 0.06},
+        {"mu": 0.70, "sigma": 0.05},
+        {"mu": 0.38, "sigma": 0.04},
     ]
 
     count = 0
-    num_dists = len(distributions_epoch_1)
+    num_dists = len(distributions)
 
     while count < total_samples:
-        # Визначаємо позицію у "циклі дрейфу"
-        drift_cycle_pos = (count % drift_period) / drift_period  # 0..1, позиція в періоді
+        # На початку кожного періоду — дрейф параметрів
+        if count % drift_period == 0 and count > 0:
+            for dist in distributions:
+                dist["mu"] = random_walk_param(dist["mu"], delta=0.02, min_val=0.0, max_val=1.0)
+                dist["sigma"] = random_walk_param(dist["sigma"], delta=0.005, min_val=0.001, max_val=0.1)
 
-        # Визначаємо, чи це фаза переходу (приблизно останні 20% періоду)
-        transition_start = 0.8
-
-        if drift_cycle_pos < transition_start:
-            # Поки що "концепт 1"
-            alpha = 0.0
-        else:
-            # Плавний перехід від 0 до 1
-            alpha = (drift_cycle_pos - transition_start) / (1 - transition_start)
-
-        # Для кожного дистрибутиву генеруємо дані, чергуючи їх по черзі
-        for i in range(num_dists):
-            # Інтерполяція параметрів mu і sigma між двома концептами
-            mu = smooth_transition(distributions_epoch_1[i]["mu"], distributions_epoch_2[i]["mu"], alpha)
-            sigma = smooth_transition(distributions_epoch_1[i]["sigma"], distributions_epoch_2[i]["sigma"], alpha)
-
+        for i, dist in enumerate(distributions, start=1):
             R_i = random.randint(-50, 50)
             T_i = 2000 + R_i
-
             for _ in range(T_i):
                 if count >= total_samples:
                     return
-                x = np.random.normal(loc=mu, scale=sigma)
-                yield {"x": x}, i + 1
+                x = np.random.normal(loc=dist["mu"], scale=dist["sigma"])
+                yield {"x": x}, i
                 count += 1
 
 def data_stream_generator_mixed_with_concept_drift(total_samples=20000, drift_period=5000):
-    distributions_epoch_1 = [
+    distributions = [
         {"type": "normal", "params": {"mu": 0.5118, "sigma": 0.0634}},
         {"type": "uniform", "params": {"low": 0.48, "high": 0.55}},
         {"type": "exponential", "params": {"scale": 1 / 0.7463}},
@@ -67,35 +49,35 @@ def data_stream_generator_mixed_with_concept_drift(total_samples=20000, drift_pe
         {"type": "binomial", "params": {"n": 10, "p": 0.38}},
     ]
 
-    distributions_epoch_2 = [
-        {"type": "normal", "params": {"mu": 0.5188, "sigma": 0.0579}},
-        {"type": "uniform", "params": {"low": 0.4, "high": 0.6}},
-        {"type": "exponential", "params": {"scale": 1.0}},
-        {"type": "lognormal", "params": {"mean": 0.0, "sigma": 0.25}},
-        {"type": "binomial", "params": {"n": 10, "p": 0.5}},
-    ]
-
     count = 0
-    num_dists = len(distributions_epoch_1)
 
     while count < total_samples:
-        drift_cycle_pos = (count % drift_period) / drift_period
-        transition_start = 0.8
-        alpha = 0.0 if drift_cycle_pos < transition_start else (drift_cycle_pos - transition_start) / (
-                    1 - transition_start)
+        # На початку кожного періоду — змінюємо параметри
+        if count % drift_period == 0 and count > 0:
+            for dist in distributions:
+                if dist["type"] == "normal":
+                    dist["params"]["mu"] = random_walk_param(dist["params"]["mu"], delta=0.02, min_val=0.0, max_val=1.0)
+                    dist["params"]["sigma"] = random_walk_param(dist["params"]["sigma"], delta=0.005, min_val=0.001,
+                                                                max_val=0.2)
+                elif dist["type"] == "uniform":
+                    low = dist["params"]["low"]
+                    high = dist["params"]["high"]
+                    dist["params"]["low"] = random_walk_param(low, delta=0.01, min_val=0.0, max_val=high - 0.01)
+                    dist["params"]["high"] = random_walk_param(high, delta=0.01, min_val=dist["params"]["low"] + 0.01,
+                                                               max_val=1.0)
+                elif dist["type"] == "exponential":
+                    dist["params"]["scale"] = random_walk_param(dist["params"]["scale"], delta=0.1, min_val=0.1,
+                                                                max_val=5.0)
+                elif dist["type"] == "lognormal":
+                    dist["params"]["mean"] = random_walk_param(dist["params"]["mean"], delta=0.1)
+                    dist["params"]["sigma"] = random_walk_param(dist["params"]["sigma"], delta=0.02, min_val=0.01,
+                                                                max_val=1.0)
+                elif dist["type"] == "binomial":
+                    dist["params"]["n"] = max(1, int(round(
+                        random_walk_param(dist["params"]["n"], delta=1, min_val=1, max_val=100))))
+                    dist["params"]["p"] = random_walk_param(dist["params"]["p"], delta=0.02, min_val=0.0, max_val=1.0)
 
-        for i in range(num_dists):
-            dist1 = distributions_epoch_1[i]
-            dist2 = distributions_epoch_2[i]
-
-            # Для параметрів, які є числами, робимо інтерполяцію, інакше беремо dist1 або dist2 залежно від alpha
-            def interp_param(key):
-                val1 = dist1["params"][key]
-                val2 = dist2["params"][key]
-                if isinstance(val1, (int, float)) and isinstance(val2, (int, float)):
-                    return smooth_transition(val1, val2, alpha)
-                return val1 if alpha < 0.5 else val2
-
+        for i, dist in enumerate(distributions, start=1):
             R_i = random.randint(-50, 50)
             T_i = 2000 + R_i
 
@@ -103,32 +85,21 @@ def data_stream_generator_mixed_with_concept_drift(total_samples=20000, drift_pe
                 if count >= total_samples:
                     return
 
-                dist_type = dist1["type"] if alpha < 0.5 else dist2["type"]
-
-                if dist_type == "normal":
-                    mu = interp_param("mu")
-                    sigma = interp_param("sigma")
-                    x = np.random.normal(loc=mu, scale=sigma)
-                elif dist_type == "uniform":
-                    low = interp_param("low")
-                    high = interp_param("high")
-                    x = np.random.uniform(low=low, high=high)
-                elif dist_type == "exponential":
-                    scale = interp_param("scale")
-                    x = np.random.exponential(scale=scale)
-                elif dist_type == "lognormal":
-                    mean = interp_param("mean")
-                    sigma = interp_param("sigma")
-                    x = np.random.lognormal(mean=mean, sigma=sigma)
-                elif dist_type == "binomial":
-                    n = interp_param("n")
-                    p = interp_param("p")
-                    # n та p мають бути цілими/плаваючими - округлюємо n для безпеки
-                    x = np.random.binomial(n=int(round(n)), p=p)
+                params = dist["params"]
+                if dist["type"] == "normal":
+                    x = np.random.normal(loc=params["mu"], scale=params["sigma"])
+                elif dist["type"] == "uniform":
+                    x = np.random.uniform(low=params["low"], high=params["high"])
+                elif dist["type"] == "exponential":
+                    x = np.random.exponential(scale=params["scale"])
+                elif dist["type"] == "lognormal":
+                    x = np.random.lognormal(mean=params["mean"], sigma=params["sigma"])
+                elif dist["type"] == "binomial":
+                    x = np.random.binomial(n=int(round(params["n"])), p=params["p"])
                 else:
                     x = 0
 
-                yield {"x": x}, i + 1
+                yield {"x": x}, i
                 count += 1
 
 def init_models():
