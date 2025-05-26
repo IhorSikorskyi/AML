@@ -63,7 +63,6 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
     acc_committee_list = []
     first_iteration_done = False
 
-    # Початкове значення точності (не виводимо на окремий графік)
     initial_acc_entropy = accuracy_score(y_test, learner_entropy.predict(X_test))
     initial_acc_committee = accuracy_score(y_test, committee.predict(X_test))
     acc_entropy_list.append(initial_acc_entropy)
@@ -88,7 +87,6 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
         acc_entropy_list.append(acc_entropy)
         acc_committee_list.append(acc_committee)
 
-        # Побудова графіку точності тільки після першої ітерації
         if not first_iteration_done:
             plt.figure(figsize=(6, 5))
             bars = plt.bar(['Entropy Learner', 'Committee'], [acc_entropy, acc_committee], color=['skyblue', 'salmon'])
@@ -106,7 +104,6 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
     print(f"Entropy Learner: {np.mean(acc_entropy_list[1:]):.4f}")
     print(f"Committee: {np.mean(acc_committee_list[1:]):.4f}")
 
-    # Побудова графіка динаміки
     plt.figure(figsize=(10, 6))
     plt.plot(range(n_queries + 1), acc_entropy_list, label='Entropy Learner')
     plt.plot(range(n_queries + 1), acc_committee_list, label='Committee')
@@ -120,7 +117,6 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
 
     return learner_entropy, committee
 
-    # Побудова графіка точності
     plt.figure(figsize=(10, 6))
     plt.plot(range(n_queries + 1), acc_entropy_list, label='Entropy Learner')
     plt.plot(range(n_queries + 1), acc_committee_list, label='Committee')
@@ -135,6 +131,82 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
     return learner_entropy, committee
 
 
+def interactive_labeling_loop_both(learner, committee, X_pool, y_pool, X_test, y_test, max_queries=15):
+    acc_entropy_list = []
+    acc_committee_list = []
+    first_iteration_done = False
+
+    # Початкова точність
+    acc_entropy_list.append(accuracy_score(y_test, learner.predict(X_test)))
+    acc_committee_list.append(accuracy_score(y_test, committee.predict(X_test)))
+
+    for i in range(max_queries):
+        print(f"\n=== Інтерактивна ітерація {i + 1} ===")
+
+        query_idx_entropy, query_instance_entropy = learner.query(X_pool, n_instances=1)
+        query_idx_committee, query_instance_committee = committee.query(X_pool, n_instances=1)
+
+        fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+        axs[0].imshow(query_instance_entropy[0].reshape(8, 8), cmap='gray')
+        axs[0].set_title(f"Entropy Prediction: {learner.predict(query_instance_entropy)[0]}")
+        axs[0].axis('off')
+
+        axs[1].imshow(query_instance_committee[0].reshape(8, 8), cmap='gray')
+        axs[1].set_title(f"Committee Prediction: {committee.predict(query_instance_committee)[0]}")
+        axs[1].axis('off')
+
+        plt.show()
+
+        while True:
+            try:
+                label = int(input("Введіть правильну мітку (0–9): "))
+                if 0 <= label <= 9:
+                    break
+            except:
+                pass
+            print("Некоректне значення. Введіть число від 0 до 9.")
+
+        learner.teach(query_instance_entropy, [label])
+        committee.teach(query_instance_committee, [label])
+
+        remove_idx = np.unique(np.concatenate([query_idx_entropy, query_idx_committee]))
+        X_pool = np.delete(X_pool, remove_idx, axis=0)
+        y_pool = np.delete(y_pool, remove_idx, axis=0)
+
+        acc_entropy_list.append(accuracy_score(y_test, learner.predict(X_test)))
+        acc_committee_list.append(accuracy_score(y_test, committee.predict(X_test)))
+
+        if not first_iteration_done:
+            plt.figure(figsize=(6, 5))
+            bars = plt.bar(['Entropy', 'Committee'], [acc_entropy_list[-1], acc_committee_list[-1]],
+                           color=['skyblue', 'salmon'])
+            plt.ylim(0, 1)
+            plt.ylabel('Accuracy')
+            plt.title('Accuracy After First Manual Label')
+            for bar in bars:
+                height = bar.get_height()
+                plt.text(bar.get_x() + bar.get_width() / 2.0, height + 0.02, f'{height:.2f}', ha='center', va='bottom')
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.show()
+            first_iteration_done = True
+
+    print("\n=== Підсумкова середня точність ===")
+    print(f"Entropy Learner:  {np.mean(acc_entropy_list[1:]):.4f}")
+    print(f"Committee:        {np.mean(acc_committee_list[1:]):.4f}")
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(max_queries + 1), acc_entropy_list, label='Entropy Learner', color='skyblue')
+    plt.plot(range(max_queries + 1), acc_committee_list, label='Committee', color='salmon')
+    plt.xlabel('Iteration')
+    plt.ylabel('Accuracy')
+    plt.title('Accuracy Progression (Manual Labeling)')
+    plt.legend()
+    plt.grid(True)
+    plt.xticks(range(max_queries + 1))
+    plt.show()
+
+    return learner, committee, X_pool, y_pool
+
 if __name__ == "__main__":
     X_train, X_test, y_train, y_test = load_data()
     X_initial, y_initial, X_pool, y_pool = initialize_pools(X_train, y_train)
@@ -142,4 +214,8 @@ if __name__ == "__main__":
     learner_entropy = create_active_learner(X_initial, y_initial)
     committee = create_committee(X_initial, y_initial)
 
-    active_learning_loop_batch(15, learner_entropy, committee, X_pool, y_pool, X_test, y_test)
+    # active_learning_loop_batch(15, learner_entropy, committee, X_pool, y_pool, X_test, y_test)
+
+    learner_entropy, committee, X_pool, y_pool = interactive_labeling_loop_both(
+        learner_entropy, committee, X_pool, y_pool, X_test, y_test, max_queries=15
+    )
