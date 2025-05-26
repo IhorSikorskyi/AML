@@ -143,17 +143,14 @@ def interactive_labeling_loop_both(learner, committee, X_pool, y_pool, X_test, y
     for i in range(max_queries):
         print(f"\n=== Інтерактивна ітерація {i + 1} ===")
 
-        # Запитуємо по 1 зразку з пулу (для обох моделей однаковий індекс і обробка)
         query_idx, query_instance = learner.query(X_pool, n_instances=1)
 
-        # Відображення одного зображення з передбаченнями обох моделей
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.imshow(query_instance[0].reshape(8, 8), cmap='gray')
         ax.set_title(f"E: {learner.predict(query_instance)[0]}, C: {committee.predict(query_instance)[0]}")
         ax.axis('off')
         plt.show()
 
-        # Запит мітки у користувача
         while True:
             try:
                 label = int(input("Введіть правильну мітку (0–9): "))
@@ -163,19 +160,15 @@ def interactive_labeling_loop_both(learner, committee, X_pool, y_pool, X_test, y
                 pass
             print("Некоректне значення. Введіть число від 0 до 9.")
 
-        # Навчаємо обидві моделі на одному й тому самому прикладі з введеною міткою
         learner.teach(query_instance, [label])
         committee.teach(query_instance, [label])
 
-        # Видаляємо використаний зразок із пулу
         X_pool = np.delete(X_pool, query_idx, axis=0)
         y_pool = np.delete(y_pool, query_idx, axis=0)
 
-        # Оцінюємо точність моделей на тесті
         acc_entropy_list.append(accuracy_score(y_test, learner.predict(X_test)))
         acc_committee_list.append(accuracy_score(y_test, committee.predict(X_test)))
 
-        # Відображаємо стовпчикову діаграму після першої ітерації
         if not first_iteration_done:
             plt.figure(figsize=(6, 5))
             bars = plt.bar(['Entropy', 'Committee'], [acc_entropy_list[-1], acc_committee_list[-1]],
@@ -194,7 +187,6 @@ def interactive_labeling_loop_both(learner, committee, X_pool, y_pool, X_test, y
     print(f"Entropy Learner:  {np.mean(acc_entropy_list[1:]):.4f}")
     print(f"Committee:        {np.mean(acc_committee_list[1:]):.4f}")
 
-    # Графік зміни точності за всі ітерації
     plt.figure(figsize=(10, 6))
     plt.plot(range(max_queries + 1), acc_entropy_list, label='Entropy Learner', color='skyblue')
     plt.plot(range(max_queries + 1), acc_committee_list, label='Committee', color='salmon')
