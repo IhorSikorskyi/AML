@@ -61,6 +61,13 @@ def query_and_label_automatic_batch(learner_entropy, committee, X_pool, y_pool, 
 def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_pool, X_test, y_test, batch_size=9):
     acc_entropy_list = []
     acc_committee_list = []
+    first_iteration_done = False
+
+    # Початкове значення точності (не виводимо на окремий графік)
+    initial_acc_entropy = accuracy_score(y_test, learner_entropy.predict(X_test))
+    initial_acc_committee = accuracy_score(y_test, committee.predict(X_test))
+    acc_entropy_list.append(initial_acc_entropy)
+    acc_committee_list.append(initial_acc_committee)
 
     for idx in range(n_queries):
         print(f"\n=== Query {idx + 1} ===")
@@ -69,37 +76,64 @@ def active_learning_loop_batch(n_queries, learner_entropy, committee, X_pool, y_
          query_idx_committee, query_instance_committee, user_labels_committee) = query_and_label_automatic_batch(
             learner_entropy, committee, X_pool, y_pool, batch_size)
 
-        # Навчання моделей на нових даних (пакетом)
         learner_entropy.teach(query_instance_entropy, user_labels_entropy)
         committee.teach(query_instance_committee, user_labels_committee)
 
-        # Оновлення пулу непозначених даних (видаляємо весь пакет, унікальні індекси)
         remove_idx = np.union1d(query_idx_entropy, query_idx_committee)
         X_pool = np.delete(X_pool, remove_idx, axis=0)
         y_pool = np.delete(y_pool, remove_idx, axis=0)
 
-        # Обчислення точності моделей
         acc_entropy = accuracy_score(y_test, learner_entropy.predict(X_test))
         acc_committee = accuracy_score(y_test, committee.predict(X_test))
         acc_entropy_list.append(acc_entropy)
         acc_committee_list.append(acc_committee)
 
-    print("\n=== Підсумкова середня точність ===")
-    print(f"Entropy Learner: {np.mean(acc_entropy_list):.4f}")
-    print(f"Committee: {np.mean(acc_committee_list):.4f}")
+        # Побудова графіку точності тільки після першої ітерації
+        if not first_iteration_done:
+            plt.figure(figsize=(6, 5))
+            bars = plt.bar(['Entropy Learner', 'Committee'], [acc_entropy, acc_committee], color=['skyblue', 'salmon'])
+            plt.ylim(0, 1)
+            plt.ylabel('Accuracy')
+            plt.title('Accuracy After First Query')
+            for bar in bars:
+                height = bar.get_height()
+                plt.text(bar.get_x() + bar.get_width()/2.0, height + 0.02, f'{height:.2f}', ha='center', va='bottom')
+            plt.grid(axis='y', linestyle='--', alpha=0.7)
+            plt.show()
+            first_iteration_done = True
 
-    # Побудова графіка точності
+    print("\n=== Підсумкова середня точність ===")
+    print(f"Entropy Learner: {np.mean(acc_entropy_list[1:]):.4f}")
+    print(f"Committee: {np.mean(acc_committee_list[1:]):.4f}")
+
+    # Побудова графіка динаміки
     plt.figure(figsize=(10, 6))
-    plt.plot(range(1, n_queries + 1), acc_entropy_list, label='Entropy Learner')
-    plt.plot(range(1, n_queries + 1), acc_committee_list, label='Committee')
-    plt.xlabel('Number of Queries')
+    plt.plot(range(n_queries + 1), acc_entropy_list, label='Entropy Learner')
+    plt.plot(range(n_queries + 1), acc_committee_list, label='Committee')
+    plt.xlabel('Query Iteration')
     plt.ylabel('Accuracy on Test Set')
-    plt.title('Comparison of Accuracy during Active Learning')
+    plt.title('Accuracy Progression During Active Learning')
+    plt.xticks(range(n_queries + 1))
     plt.legend()
     plt.grid(True)
     plt.show()
 
     return learner_entropy, committee
+
+    # Побудова графіка точності
+    plt.figure(figsize=(10, 6))
+    plt.plot(range(n_queries + 1), acc_entropy_list, label='Entropy Learner')
+    plt.plot(range(n_queries + 1), acc_committee_list, label='Committee')
+    plt.xlabel('Query Iteration')
+    plt.ylabel('Accuracy on Test Set')
+    plt.title('Accuracy Progression During Active Learning (Including Initial)')
+    plt.xticks(range(n_queries + 1))
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    return learner_entropy, committee
+
 
 if __name__ == "__main__":
     X_train, X_test, y_train, y_test = load_data()
